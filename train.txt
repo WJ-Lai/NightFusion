@@ -1,0 +1,14 @@
+
+model_name
+attention_module
+checkpoint_dir
+train_dir
+summary_dir
+learning_rate
+batch_size
+f_summary_step
+f_save_step
+training_step
+backbone_name
+multiscale_feats
+

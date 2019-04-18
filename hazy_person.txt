@@ -1,0 +1,69 @@
+    __imgs_name = None
+    __for_what = None
+    __whether_aug =None
+
+    __data_queue = None
+    __batch_queue = None
+    __read_threads = None
+    __batch_threads = None
+    __threads_name = None
+	
+	
+def __init__(self, for_what, batch_size=1, whether_aug=False):
+
+	self.__whether_aug
+	self.__for_what = for_what
+	self.__imgs_name	获取所有图片地址
+	self.__batch_size
+	self.__threads_name
+	self.__start_read_data(batch_size=self.__batch_size)
+    self.__start_batch_data(batch_size=self.__batch_size)
+
+
+def __start_read_data(self, batch_size, thread_num=4, capacity_scalar=2):
+	self.__read_threads = []
+	maxsize
+	self.__data_queue = queue.Queue(maxsize=maxsize)
+	thread = threading.Thread(target=self.__send_data)——————————————————__send_data
+	self.__threads_name.append("batch_thread_id%d"%(i))
+	self.__read_threads.append(thread)
+
+
+def __send_data(self):
+	basefile  提取编号
+	label_name
+	img, bboxes = self.__read_one_sample(img_name,label_name)——————————__read_one_sample
+	img, bboxes = train_tools.img_aug(img, bboxes)  图片增强
+	self.__data_queue.put([img, labels, bboxes])
+	
+def __read_one_sample(self, img_name, label_name):
+	返回一张图片内容和所有人物注释[?,4]，因为每张图片的人物不确定
+	
+
+def __start_batch_data(self, batch_size, thread_num=4, queue_size=5):
+	self.__batch_threads = []
+    self.__batch_queue = queue.Queue(queue_size)
+	self.__batch_data
+
+
+def __batch_data(self, batch_size):
+	self.__batch_queue.put(copy.deepcopy(batch_container_list))  获得对应batchsize的数据
+
+
+def __exit__(self, exc_type, exc_val, exc_tb):
+
+def load_data_eval(self):
+	img: one img with shape (h, w, c), if end, None
+    bboxes: shape is (n, 4), if end, None
+	
+	
+
+def load_batch(self):
+	batch_data = self.__batch_queue.get()
+
+
+def stop_loading(self):
+	threads = self.__read_threads + self.__batch_threads
+	self.__async_raise
+
+def __async_raise(self, tid, exctype):
