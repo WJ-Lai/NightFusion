@@ -1,0 +1,2 @@
+model_checkpoint_path: "NightFusion.model"
+all_model_checkpoint_paths: "NightFusion.model"

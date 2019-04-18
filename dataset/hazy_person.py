@@ -106,7 +106,7 @@ class provider(object):
 
                 ##########################
                 root = 'D:/dataset/v1.0-mini'
-                # root = '/home/vincent/Data/v1.0-mini'
+                root = '/home/vincent/Data/v1.0-mini'
                 self.nusc = NuScenes(version='v1.0-mini', dataroot=root, verbose=True)
                 # get night scenes
                 self.night_scene = self.nusc.list_night()
