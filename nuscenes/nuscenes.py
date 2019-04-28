@@ -384,9 +384,9 @@ class NuScenes:
                                                  camera_channel=camera_channel, out_path=out_path)
 
     def render_pointcloud_in_DHR(self, sample_token: str, dot_size: int = 5, camera_channel: str = 'CAM_FRONT',
-                                 encode_type='height', out_path: str = None) -> None:
+                                 encode_type='height', nsweeps: int = 1, out_path: str = None) -> None:
         self.explorer.render_pointcloud_in_DHR(sample_token, dot_size, camera_channel=camera_channel,
-                                               encode_type=encode_type, out_path=out_path)
+                                               encode_type=encode_type, nsweeps=nsweeps, out_path=out_path)
 
     def render_sample(self, sample_token: str, box_vis_level: BoxVisibility = BoxVisibility.ANY, nsweeps: int = 1,
                       out_path: str = None) -> None:
@@ -581,17 +581,18 @@ class NuScenesExplorer:
 
     def map_pointcloud(self, pointsensor_token: str,
                        camera_token: str,
-                       encode_type: str
+                       encode_type: str,
+                       nsweeps : int=1,
                        ) -> Tuple:
         """
         Map LIDAR points into depth, heigth and reflectance image
         """
         cam = self.nusc.get('sample_data', camera_token)
         pointsensor = self.nusc.get('sample_data', pointsensor_token)
-        pcl_path = osp.join(self.nusc.dataroot, pointsensor['filename'])
-        pc = LidarPointCloud.from_file(pcl_path)
-        # pc, times = LidarPointCloud.from_file_multisweep(self.nusc, sample_rec,
-        #                                                  chan='LIDAR_TOP', nsweeps=10)
+        sd_record = self.nusc.get('sample_data', pointsensor_token)
+        sample_rec = self.nusc.get('sample', sd_record['sample_token'])
+        pc, times = LidarPointCloud.from_file_multisweep(self.nusc, sample_rec, chan='LIDAR_TOP',
+                                                         ref_chan = 'LIDAR_TOP', nsweeps=nsweeps)
         im = Image.open(osp.join(self.nusc.dataroot, cam['filename']))
 
         # Points live in the point sensor frame. So they need to be transformed via global to the image plane.
@@ -682,9 +683,10 @@ class NuScenesExplorer:
 
     def render_pointcloud_in_DHR(self,
                                  sample_token: str,
-                                 dot_size: int = 1,
+                                 dot_size: int = 5,
                                  camera_channel: str = 'CAM_FRONT',
                                  encode_type = 'height',
+                                 nsweeps: int = 1,
                                  out_path: str = None) -> None:
         """
         Scatter-plots a point-cloud on top of image DHR
@@ -695,7 +697,8 @@ class NuScenesExplorer:
         pointsensor_token = sample_record['data']['LIDAR_TOP']
         camera_token = sample_record['data'][camera_channel]
 
-        points, coloring = self.map_pointcloud(pointsensor_token, camera_token, encode_type)
+        points, coloring = self.map_pointcloud(pointsensor_token, camera_token,
+                                               encode_type=encode_type, nsweeps=nsweeps)
 
         fig, ax = plt.subplots(figsize=(16, 9))
         cam = self.nusc.get('sample_data', camera_token)
