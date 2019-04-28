@@ -383,6 +383,11 @@ class NuScenes:
         self.explorer.render_pointcloud_in_image(sample_token, dot_size, pointsensor_channel=pointsensor_channel,
                                                  camera_channel=camera_channel, out_path=out_path)
 
+    def render_pointcloud_in_DHR(self, sample_token: str, dot_size: int = 5, camera_channel: str = 'CAM_FRONT',
+                                 encode_type='height', out_path: str = None) -> None:
+        self.explorer.render_pointcloud_in_DHR(sample_token, dot_size, camera_channel=camera_channel,
+                                               encode_type=encode_type, out_path=out_path)
+
     def render_sample(self, sample_token: str, box_vis_level: BoxVisibility = BoxVisibility.ANY, nsweeps: int = 1,
                       out_path: str = None) -> None:
         self.explorer.render_sample(sample_token, box_vis_level, nsweeps=nsweeps, out_path=out_path)
@@ -416,6 +421,7 @@ class NuScenes:
 
     def get_sensor_token_list(self, scene, sensor: str ='CAM_FRONT'):
         return self.explorer.get_sensor_token_list(scene, sensor=sensor)
+
 
 class NuScenesExplorer:
     """ Helper class to list and visualize NuScenes data. These are meant to serve as tutorials and templates for
@@ -573,6 +579,76 @@ class NuScenesExplorer:
 
         return points, coloring, im
 
+    def map_pointcloud(self, pointsensor_token: str,
+                       camera_token: str,
+                       encode_type: str
+                       ) -> Tuple:
+        """
+        Map LIDAR points into depth, heigth and reflectance image
+        """
+        cam = self.nusc.get('sample_data', camera_token)
+        pointsensor = self.nusc.get('sample_data', pointsensor_token)
+        pcl_path = osp.join(self.nusc.dataroot, pointsensor['filename'])
+        pc = LidarPointCloud.from_file(pcl_path)
+        # pc, times = LidarPointCloud.from_file_multisweep(self.nusc, sample_rec,
+        #                                                  chan='LIDAR_TOP', nsweeps=10)
+        im = Image.open(osp.join(self.nusc.dataroot, cam['filename']))
+
+        # Points live in the point sensor frame. So they need to be transformed via global to the image plane.
+        # First step: transform the point-cloud to the ego vehicle frame for the timestamp of the sweep.
+        cs_record = self.nusc.get('calibrated_sensor', pointsensor['calibrated_sensor_token'])
+        pc.rotate(Quaternion(cs_record['rotation']).rotation_matrix)
+        pc.translate(np.array(cs_record['translation']))
+
+        # Second step: transform to the global frame.
+        poserecord = self.nusc.get('ego_pose', pointsensor['ego_pose_token'])
+        pc.rotate(Quaternion(poserecord['rotation']).rotation_matrix)
+        pc.translate(np.array(poserecord['translation']))
+
+        # Third step: transform into the ego vehicle frame for the timestamp of the image.
+        poserecord = self.nusc.get('ego_pose', cam['ego_pose_token'])
+        pc.translate(-np.array(poserecord['translation']))
+        pc.rotate(Quaternion(poserecord['rotation']).rotation_matrix.T)
+
+        # Fourth step: transform into the camera.
+        cs_record = self.nusc.get('calibrated_sensor', cam['calibrated_sensor_token'])
+        pc.translate(-np.array(cs_record['translation']))
+        pc.rotate(Quaternion(cs_record['rotation']).rotation_matrix.T)
+
+        # Fifth step: actually take a "picture" of the point cloud.
+        # Grab the depths (camera frame z axis points away from the camera).
+        x_lidar = pc.points[0, :]
+        y_lidar = pc.points[1, :]
+        z_lidar = pc.points[2, :]
+        r_lidar = pc.points[3, :]  # Reflectance
+
+        # Distance relative to origin when looked from top
+        d_lidar = np.sqrt(x_lidar ** 2 + y_lidar ** 2)
+
+        # Set the height to be the coloring.
+        if encode_type == "reflectance":
+            coloring = r_lidar
+        elif encode_type == "height":
+            coloring = z_lidar
+        else:
+            coloring = -d_lidar
+
+        # Take the actual picture (matrix multiplication with camera-matrix + renormalization).
+        points = view_points(pc.points[:3, :], np.array(cs_record['camera_intrinsic']), normalize=True)
+        # Grab the depths (camera frame z axis points away from the camera).
+        depths = pc.points[2, :]
+        # Remove points that are either outside or behind the camera. Leave a margin of 1 pixel for aesthetic reasons.
+        mask = np.ones(depths.shape[0], dtype=bool)
+        mask = np.logical_and(mask, depths > 0)
+        mask = np.logical_and(mask, points[0, :] > 1)
+        mask = np.logical_and(mask, points[0, :] < im.size[0] - 1)
+        mask = np.logical_and(mask, points[1, :] > 1)
+        mask = np.logical_and(mask, points[1, :] < im.size[1] - 1)
+        points = points[:, mask]
+        coloring = coloring[mask]
+
+        return points, coloring
+
     def render_pointcloud_in_image(self,
                                    sample_token: str,
                                    dot_size: int = 5,
@@ -601,6 +677,43 @@ class NuScenesExplorer:
 
         if out_path is not None:
             plt.savefig(out_path)
+        else:
+            plt.show()
+
+    def render_pointcloud_in_DHR(self,
+                                 sample_token: str,
+                                 dot_size: int = 1,
+                                 camera_channel: str = 'CAM_FRONT',
+                                 encode_type = 'height',
+                                 out_path: str = None) -> None:
+        """
+        Scatter-plots a point-cloud on top of image DHR
+        """
+        sample_record = self.nusc.get('sample', sample_token)
+
+        # Here we just grab the front camera and the point sensor.
+        pointsensor_token = sample_record['data']['LIDAR_TOP']
+        camera_token = sample_record['data'][camera_channel]
+
+        points, coloring = self.map_pointcloud(pointsensor_token, camera_token, encode_type)
+
+        fig, ax = plt.subplots(figsize=(16, 9))
+        cam = self.nusc.get('sample_data', camera_token)
+        im = Image.open(osp.join(self.nusc.dataroot, cam['filename']))
+
+        ax.scatter(points[0, :], points[1, :], c=coloring, s=dot_size, linewidths=0, alpha=1, cmap="jet")
+        ax.set_facecolor((1, 1, 1))  # Set regions with no points to black
+        ax.axis('scaled')  # {equal, scaled}
+        ax.xaxis.set_visible(False)  # Do not draw axis tick marks
+        ax.yaxis.set_visible(False)  # Do not draw axis tick marks
+        ax.yaxis.get_minor_ticks()
+        plt.xlim([0, im.size[0]])
+        plt.ylim([im.size[1], 0])
+
+        if out_path is not None:
+            fig.savefig(out_path)
+        else:
+            fig.show()
 
     def render_sample(self,
                       token: str,

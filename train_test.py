@@ -82,6 +82,73 @@ label_gt = tf.placeholder(tf.int32,
                                len(config.priori_bboxes), 1))
 global_step = tf.Variable(0, trainable=False, name='global_step')
 
+def build_graph(model_name, attention_module, config_dict, is_training):
+    """build tf graph
+    Args:
+        model_name: choose a model to build
+        attention_module: must be "se_block" or "cbam_block"
+        config_dict: some config for building net.
+        is_training: whether to train or test
+    Return:
+        det_loss: a tensor with a shape [bs, priori_boxes_num, 4]
+        clf_loss: a tensor with a shape [bs, priori_boxes_num, 2]
+    """
+    def _smooth_l1(x):
+        """Smoothed absolute function. Useful to compute an L1 smooth error.
+        Define as:
+            x^2 / 2         if abs(x) < 1
+            abs(x) - 0.5    if abs(x) > 1
+        We use here a differentiable definition using min(x) and abs(x). Clearly
+        not optimal, but good enough for our purpose!
+        """
+        absx = tf.abs(x)
+        minx = tf.minimum(absx, 1)
+        r = 0.5 * ((absx - 1) * minx + absx) ## smooth_l1
+        return r
+
+    net = model_factory(inputs=inputs, model_name=model_name,
+                        attention_module=attention_module, is_training=is_training, config_dict=config_dict)
+    bboxes_pred, logits_pred = net.get_output_for_train()
+
+    with tf.name_scope("clf_loss_process"):
+        logits_pred = tf.reshape(logits_pred, shape=[-1, 2])
+        pred = slim.softmax(logits_pred)
+
+        pos_mask = tf.reshape(label_gt, shape=[-1])
+        pos_mask = tf.cast(pos_mask, dtype=tf.float32)
+
+        neg_mask = tf.logical_not(tf.cast(pos_mask, dtype=tf.bool))
+        neg_mask = tf.cast(neg_mask, dtype=tf.float32)
+
+        # Hard negative mining...
+        neg_score = tf.where(tf.cast(neg_mask, dtype=tf.bool),
+                             pred[:,0], 1.- neg_mask)
+
+        # Number of negative entries to select.
+        neg_ratio = 5.
+        pos_num = tf.reduce_sum(pos_mask)
+        max_neg_num = tf.cast(tf.reduce_sum(neg_mask),dtype=tf.int32)
+        n_neg = tf.cast(neg_ratio * pos_num, tf.int32) + tf.shape(inputs)[0]
+        n_neg = tf.minimum(n_neg, max_neg_num)
+
+        val, idxes = tf.nn.top_k(-neg_score, k=n_neg)
+        max_hard_pred = -val[-1]
+        tf.summary.scalar("max_hard_predition", max_hard_pred)  ## the bigger, the better
+        nmask = tf.logical_and(tf.cast(neg_mask, dtype=tf.bool),
+                               neg_score < max_hard_pred)
+        hard_neg_mask = tf.cast(nmask, tf.float32)
+
+        clf_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits_pred,
+                                                                  labels=tf.reshape(label_gt,[-1]))
+
+        pos_loss = tf.reduce_sum(clf_loss * pos_mask)
+        neg_loss = tf.reduce_sum(clf_loss * hard_neg_mask)
+
+    with tf.name_scope("det_loss_process"):
+        det_loss = tf.reduce_sum(_smooth_l1(tf.reshape((bboxes_pred - bboxes_gt),[-1,4])*tf.expand_dims(pos_mask,axis=-1)))# / FLAGS.batch_size
+
+    return det_loss, pos_loss + neg_loss
+
 
 def main(_):
 
