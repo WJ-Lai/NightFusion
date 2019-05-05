@@ -85,7 +85,7 @@ class provider(object):
         assert batch_size > 0
         assert type(whether_aug) == bool
 
-        self.__mini_size = 225
+        self.__mini_size = 416
 
         self.__whether_aug = whether_aug
 

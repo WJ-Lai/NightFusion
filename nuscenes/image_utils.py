@@ -5,6 +5,9 @@ import numpy as np
 from typing import Tuple
 from PIL import Image
 
+# the area which will be used:y_min,y_max,x_min,x_max
+VALID_AREA = [0, 900, 350, 1250]
+
 class ImageProcessing:
     """ Class for processing image. """
 
@@ -27,18 +30,17 @@ class ImageProcessing:
 
         self.image = cv2.imread(img_path)
         self.height1, self.width1 = self.image.shape[:2]
-        self.pic_size1 = [self.height1, self.width1]
         self.image = self.__img_resize1(mini_size)
 
         self.labels = self.classes_decode()
         # Get corcons list
         self.control_points_list = self.__control_points_list()
-        self.width_seg = 16
+        self.width_seg = 9
         self.height_seg = 9
         # self.labels, self.control_points_list = self.annotations_in_net()
 
     # Resize image
-    def __img_resize2(self, min_size: float = 224.0):
+    def __img_resize2(self, min_size: float = 416.0):
         """resize the picture
         Args:
             img: the origin image
@@ -46,7 +48,7 @@ class ImageProcessing:
         Return:
             img_res: image after resizing
         """
-
+        # resize
         max_loc = self.pic_size.index(max(self.pic_size))
         min_loc = self.pic_size.index(min(self.pic_size))
         self.res_ratio = min_size/self.pic_size[min_loc]
@@ -60,7 +62,7 @@ class ImageProcessing:
 
 
     # Resize image
-    def __img_resize1(self, min_size: float = 224.0):
+    def __img_resize1(self, min_size: float = 416.0):
         """resize the picture
         Args:
             img: the origin image
@@ -68,16 +70,13 @@ class ImageProcessing:
         Return:
             img_res: image after resizing
         """
-        max_loc = self.pic_size1.index(max(self.pic_size1))
-        min_loc = self.pic_size1.index(min(self.pic_size1))
-        self.res_ratio = min_size/self.pic_size1[min_loc]
-        self.pic_size1[max_loc] = self.res_ratio * self.pic_size1[max_loc]
-        self.pic_size1[min_loc] = min_size
-        self.height1 = self.pic_size1[0]
-        self.width1 = self.pic_size1[1]
-        self.image = cv2.resize(self.image,
-                                (int(self.pic_size1[1]), int(self.pic_size1[0])),
-                                interpolation=4)
+
+        # cut left and right
+        self.image = self.image[VALID_AREA[0]:VALID_AREA[1], VALID_AREA[2]:VALID_AREA[3]]
+
+        self.res_ratio = min_size/self.height1
+        self.image = cv2.resize(self.image, (min_size, min_size), interpolation=4)
+        self.height1, self.width1 = self.image.shape[:2]
 
         return self.image
 
@@ -201,6 +200,32 @@ class ImageProcessing:
         :param box_name: the labels for object classes
         :return: class_number: the number for object classes
         """
+        # switch = {
+        #     "animal": 1,
+        #     "human.pedestrian.adult": 2,
+        #     "human.pedestrian.child": 3,
+        #     "human.pedestrian.construction_worker": 4,
+        #     "human.pedestrian.personal_mobility": 5,
+        #     "human.pedestrian.police_officer": 6,
+        #     "human.pedestrian.stroller": 7,
+        #     "human.pedestrian.wheelchair": 8,
+        #     "movable_object.barrier": 9,
+        #     "movable_object.debris": 10,
+        #     "movable_object.pushable_pullable": 11,
+        #     "movable_object.trafficcone": 12,
+        #     "vehicle.bicycle": 13,
+        #     "vehicle.bus.bendy": 14,
+        #     "vehicle.bus.rigid": 15,
+        #     "vehicle.car": 16,
+        #     "vehicle.construction": 17,
+        #     "vehicle.emergency.ambulance": 18,
+        #     "vehicle.emergency.police": 19,
+        #     "vehicle.motorcycle": 20,
+        #     "vehicle.trailer": 21,
+        #     "vehicle.truck": 22,
+        #     "static_object.bicycle_rack *": 23
+        # }
+
         switch = {
             "animal": 1,
             "human.pedestrian.adult": 2,
@@ -226,6 +251,7 @@ class ImageProcessing:
             "vehicle.truck": 22,
             "static_object.bicycle_rack *": 23
         }
+
         class_number = switch[box_name]
         return class_number
 
@@ -233,18 +259,21 @@ class ImageProcessing:
     def annotations_in_net(self):
         """
         get the annotation for net work
-        :return:cell_class:<class 'tuple'>: (9, 16):
+        :return:cell_class:<class 'tuple'>: (9, 9):
                             whether there is an object status of each cell
-                corner_point_deta:<class 'tuple'>: (9, 16, 9, 2):
+                corner_point_deta:<class 'tuple'>: (y_9, x_9, object_number_max, 9 conners*2(x,y)):
                                 the control points deta about x,y of each cell
         """
 
         # set grid cell
-        cell_width = self.width/self.width_seg
-        cell_height = self.height/self.height_seg
+        cell_width = self.width1/self.width_seg
+        cell_height = self.height1/self.height_seg
         top_left_x = np.empty([1, self.width_seg])
         top_left_y = np.empty([1, self.height_seg])
-        cell_class = np.zeros((self.height_seg, self.width_seg,1))
+
+        object_number_max = 5
+        object_number_current = np.zeros((self.height_seg, self.width_seg, 1))
+        cell_class = np.zeros((self.height_seg, self.width_seg, object_number_max, 1))
 
         for i_width in range(self.width_seg):
             top_left_x[0][i_width] = i_width*cell_width
@@ -254,31 +283,62 @@ class ImageProcessing:
 
         # find control points into grid cell
         corner_number = 9
-        corner_point_deta = np.zeros((self.height_seg, self.width_seg, corner_number*2 ))
+        corner_point_deta = np.zeros((self.height_seg, self.width_seg, object_number_max, corner_number*2))
 
         for control_point in self.control_points_list:
-            cell_class_got = False
-            # find the center points location
-            if not cell_class_got:
-                cell_class_got = True
+            if control_point[8][0]>VALID_AREA[2] and control_point[8][0]<VALID_AREA[3]:
+                for i_corner in range(corner_number):
+                    # resize the box
+                    control_point[i_corner][0] = control_point[i_corner][0] - 350
+                    control_point[i_corner][0] = control_point[i_corner][0] * self.res_ratio
+                    control_point[i_corner][1] = control_point[i_corner][1] * self.res_ratio
+
+                # find the center points location
                 center_point_x = control_point[8][0]
                 center_point_y = control_point[8][1]
-                _, center_point_x_min = np.where(top_left_x <= center_point_x)
-                if len(center_point_x_min):
-                    center_point_x_min = center_point_x_min[-1]
-                    _, center_point_y_min = np.where(top_left_y <= center_point_y)
-                    center_point_y_min = center_point_y_min[-1]
-                    cell_class[center_point_y_min][center_point_x_min][0] += 1
+                center_point_x_min, center_point_y_min = self.corner_loc(center_point_x, center_point_y,
+                                                                         top_left_x, top_left_y)
+
+                object_box_order = int(object_number_current[center_point_y_min][center_point_x_min][0])
+                if object_box_order < 5:
+                    # base point is at the left top, right is x ,down is y
+                    cell_class[center_point_y_min][center_point_x_min][object_box_order][0] = 1
 
                     # find the offsets of other eight control points
-                    if cell_class[center_point_y_min][center_point_x_min] < 2:
-                        for i_corner in range(corner_number):
-                            corner_point_deta[center_point_y_min][center_point_x_min][i_corner] = \
-                            control_point[i_corner][0] - top_left_x[0][center_point_x_min]
-                            corner_point_deta[center_point_y_min][center_point_x_min][i_corner+1] = \
-                            control_point[i_corner][1] - top_left_y[0][center_point_y_min]
+                    for i_corner in range(corner_number):
+                        corner_point_deta[center_point_y_min][center_point_x_min][object_box_order][i_corner] = \
+                        control_point[i_corner][0] - top_left_x[0][center_point_x_min]
+                        corner_point_deta[center_point_y_min][center_point_x_min][object_box_order][i_corner+1] = \
+                        control_point[i_corner][1] - top_left_y[0][center_point_y_min]
+
+                        if i_corner ==8:
+                            assert control_point[i_corner][1]>0, 'center_point_y smaller than 0'
+                            assert control_point[i_corner][0] > 0, 'center_point_x smaller than 0'
+
+                    # next object box
+                    object_number_current[center_point_y_min][center_point_x_min][0] += 1
 
                 else:
+                    # the object number is larger than 5 in this grid
                     pass
+            else:
+                # the box is not in the valid area
+                pass
 
         return cell_class, corner_point_deta
+
+    def corner_loc(self, point_x, point_y, top_left_x, top_left_y):
+        """
+        Get the gird location of each corner.
+        :param point_x: x of corner
+        :param point_y: y of corner
+        :param top_left_x: gird rule
+        :param top_left_y: grid rule
+        :return: the location of corner of for the grid
+        """
+        _, center_point_x_min = np.where(top_left_x <= point_x)
+        center_point_x_min = center_point_x_min[-1]
+        _, center_point_y_min = np.where(top_left_y <= point_y)
+        center_point_y_min = center_point_y_min[-1]
+
+        return center_point_x_min, center_point_y_min
