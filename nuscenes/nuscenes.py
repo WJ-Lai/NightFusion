@@ -564,6 +564,11 @@ class NuScenesExplorer:
         # Set the height to be the coloring.
         coloring = pc.points[2, :]
 
+        # import scipy.io as io
+        # mat_path = r'D:\【测试】\新建文件夹\points.mat'
+        # mat = pc.points
+        # io.savemat(mat_path, {'name': mat})
+
         # Take the actual picture (matrix multiplication with camera-matrix + renormalization).
         points = view_points(pc.points[:3, :], np.array(cs_record['camera_intrinsic']), normalize=True)
 
@@ -619,24 +624,28 @@ class NuScenesExplorer:
         # Fifth step: actually take a "picture" of the point cloud.
         # Grab the depths (camera frame z axis points away from the camera).
         x_lidar = pc.points[0, :]
-        y_lidar = pc.points[1, :]
-        z_lidar = pc.points[2, :]
-        r_lidar = pc.points[3, :]  # Reflectance
-
+        y_lidar = pc.points[2, :]
+        z_lidar = pc.points[1, :]
+        i_lidar = pc.points[3, :]  # intensity
+        # plt.hist(i_lidar)
+        # plt.xlabel('intensity')
+        # plt.ylabel('the number of points')
+        # plt.show()
         # Distance relative to origin when looked from top
         d_lidar = np.sqrt(x_lidar ** 2 + y_lidar ** 2)
+        # d_lidar = np.sqrt(x_lidar ** 2 + y_lidar ** 2 + z_lidar ** 2)
 
         # Set the height to be the coloring.
-        if encode_type == "reflectance":
-            coloring = r_lidar
+        if encode_type == "intensity":
+            coloring = i_lidar
         elif encode_type == "height":
             coloring = z_lidar
         else:
-            coloring = -d_lidar
+            coloring = d_lidar
 
         # Take the actual picture (matrix multiplication with camera-matrix + renormalization).
         points = view_points(pc.points[:3, :], np.array(cs_record['camera_intrinsic']), normalize=True)
-        # Grab the depths (camera frame z axis points away from the camera).
+        # Grab the depths (camera frame y axis points away from the camera).
         depths = pc.points[2, :]
         # Remove points that are either outside or behind the camera. Leave a margin of 1 pixel for aesthetic reasons.
         mask = np.ones(depths.shape[0], dtype=bool)
@@ -712,6 +721,7 @@ class NuScenesExplorer:
         ax.yaxis.get_minor_ticks()
         plt.xlim([0, im.size[0]])
         plt.ylim([im.size[1], 0])
+        plt.title(encode_type, {'fontsize':28})
 
         if out_path is not None:
             fig.savefig(out_path)
@@ -907,10 +917,11 @@ class NuScenesExplorer:
         ax.set_title(sd_record['channel'])
         ax.set_aspect('equal')
 
-        plt.show()
 
         if out_path is not None:
             plt.savefig(out_path)
+        else:
+            plt.show()
 
     def render_annotation(self,
                           anntoken: str,
